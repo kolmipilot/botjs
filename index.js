@@ -1,33 +1,46 @@
+require("colors");
 require("dotenv").config();
-const { Client, Collection, GatewayIntentBits, Partials } = require("discord.js");
-const { TOKEN } = process.env; // Pobierz token z pliku .env
+const {
+  Client,
+  Collection,
+  GatewayIntentBits,
+  Partials,
+} = require("discord.js");
+const { TOKEN } = process.env;
 
-// Tworzymy klienta Discorda
+const {
+  Guilds,
+  GuildMembers,
+  GuildMessages,
+  MessageContent,
+  GuildBans,
+  GuildVoiceStates,
+} = GatewayIntentBits;
+const { User, Message, GuildMember, ThreadMember, Channel } = Partials;
+
 const client = new Client({
-  partials: [Partials.User, Partials.Message, Partials.GuildMember, Partials.ThreadMember, Partials.Channel],
+  partials: [User, Message, GuildMember, ThreadMember, Channel],
   intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent,
+    Guilds,
+    GuildMembers,
+    GuildMessages,
+    MessageContent,
+    GuildBans,
+    GuildVoiceStates,
   ],
 });
 
 client.commands = new Collection();
-
-// Importujemy handler komend i zdarzeń
 const commandHandler = require("./handlers/commandHandler");
 const eventHandler = require("./handlers/eventHandler");
 
-client.commands.set("ustawieniawydarzenia", require("./commands/ustawieniawydarzenia"));
-client.commands.set("wydarzenie", require("./commands/wydarzenie"));
+const deployCommands = require("./scripts/deployCommands");
+const { checkGiveaways } = require("./scripts/giveawayChecker");
 
-// Obsługa komend
 commandHandler(client);
-
-// Obsługa eventów
 eventHandler(client);
 
-// Łączenie z Discordem
+deployCommands(client);
+setInterval(() => checkGiveaways(client), 6000);
+
 client.login(TOKEN);

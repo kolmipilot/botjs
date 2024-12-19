@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits} = require('discord.js');
 const Events = require('../../models/events');
 const Guild = require("../../models/guild");
 
@@ -6,6 +6,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('events')
     .setDescription('Manage event settings for the server')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand(subcommand =>
       subcommand
         .setName('set')
@@ -28,6 +29,7 @@ module.exports = {
             .setRequired(true)
         )
     ),
+    
 
   async execute(client, interaction) {
     const subcommand = interaction.options.getSubcommand();
@@ -66,7 +68,7 @@ module.exports = {
         }
 
         guildData.enabledSystems.events = enabled; // Włączenie/wyłączenie systemu
-        await eventConfig.save();
+        await guildData.save();
 
         return interaction.reply({
           content: `The event system has been ${enabled ? 'enabled' : 'disabled'}.`,

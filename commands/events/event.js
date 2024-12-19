@@ -1,159 +1,296 @@
-const { SlashCommandBuilder } = require('discord.js');
-const Events = require('../../models/events');
+const { SlashCommandBuilder, ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder, PermissionsBitField } = require('discord.js');
+const Eventss = require('../../models/events');
 const Guild = require("../../models/guild");
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('event')
-    .setDescription('create new event'),
+    .setDescription('Event management commands')
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('create')
+        .setDescription('Create a new event')
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('reactions')
+        .setDescription('Add reactions to the event thread')
+        .addStringOption(option =>
+          option.setName('emojis')
+            .setDescription('List of emojis to add, separated by spaces')
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('ping')
+        .setDescription('Ping users who reacted with a specific emoji')
+        .addStringOption(option =>
+          option
+            .setName('emoji')
+            .setDescription('Emoji to check reactions for')
+            .setRequired(true)
+        )
+        .addStringOption(option =>
+          option
+            .setName('ping_message')
+            .setDescription('Message to send when pinging users')
+            .setRequired(true)
+        )
+    ),
 
   async execute(client, interaction) {
     const user = interaction.user;
     const guildId = interaction.guild.id;
-    let guildData = await Guild.findOne({ guildId: interaction.guild.id });
+    console.log('Event creation started by user:', interaction.user.username);
 
-    const eventConfig = await Events.findOne({ guildId });
-    const eventChannel = eventConfig.eventChannelId;
+    const guildData = await Guild.findOne({ guildId });
+    const eventConfig = await Eventss.findOne({ guildId });
 
-    if (!eventConfig || !guildData.enabledSystems.welcomer || !eventChannel) {
-      return interaction.reply({
-        content: 'The event system is disabled or no event channel is set. Please ask an administrator to configure it.',
-        ephemeral: true,
-      });
-    }
-
-    try {
-      if (!user.dmChannel) {
-        console.log('Creating DM channel...');
-        await user.createDM();
-        console.log('DM channel created.');
-      } else {
-        console.log('DM channel already exists.');
-      }
-
-      await user.send('Please provide the title of the event i chuj ci w dup:');
-    } catch (error) {
-      console.error('Error creating DM channel:', error);
-      await interaction.reply({
-        content: 'I cannot send you a DM. Please ensure your DMs are open.',
-        ephemeral: true,
-      });
-      return;
-    }
-
-   // const filter = (message) => message.author.id === user.id;
-    const filter = () => true;
-    const collector = user.dmChannel.createMessageCollector({ filter, max: 5, time: 120000 });
-
-    let step = 0;
-    let title = '';
-    let description = '';
-    let date = new Date();
-    let savedEmojis = [];
-    let length = '';
-
-    collector.on('collect', async (message) => {
-      console.log(`Collector received message: "${message.content}"`);
-    
-      if (step === 0) {
-        title = message.content;
-        console.log(`Step 0 - Title set: "${title}"`);
-        step++;
-        await user.send('Please provide the date of the event in the format **YYYY-MM-DDTHH:MM** (e.g., 2022-05-15T17:00):');
-      } else if (step === 1) {
-        const dateInput = message.content;
-        const parsedDate = new Date(dateInput);
-    
-        if (parsedDate instanceof Date && !isNaN(parsedDate.valueOf())) {
-          date = parsedDate;
-          console.log(`Step 1 - Valid date received: "${date}"`);
-          step++;
-          await user.send('Please provide the description of the event:');
-        } else {
-          console.warn(`Step 1 - Invalid date format: "${dateInput}"`);
-          await user.send('Provided date is not a valid date. Please provide the date of the event in the correct format **YYYY-MM-DDTHH:MM**');
-        }
-      } else if (step === 2) {
-        description = message.content;
-        console.log(`Step 2 - Description set: "${description}"`);
-        step++;
-        await user.send('Please provide the emojis that will be used in the reactions under event message. Please separate emojis with spaces:');
-      } else if (step === 3) {
-        savedEmojis = message.content.split(/\s+/);
-        console.log(`Step 3 - Emojis collected: "${savedEmojis.join(', ')}"`);
-        step++;
-        await user.send('Please provide the length of the event in the format **HH:MM** (e.g., 01:30):');
-      } else if (step === 4) {
-        const lengthInput = message.content;
-        const timeParts = lengthInput.split(':');
-    
-        if (timeParts.length === 2 && !isNaN(timeParts[0]) && !isNaN(timeParts[1])) {
-          const hours = parseInt(timeParts[0], 10);
-          const minutes = parseInt(timeParts[1], 10);
-          if (hours >= 0 && minutes >= 0 && minutes < 60) {
-            length = { hours, minutes };
-            console.log(`Step 4 - Length set: ${hours} hours and ${minutes} minutes`);
-            collector.stop();
-          } else {
-            console.warn(`Step 4 - Invalid length: "${lengthInput}"`);
-            await user.send('Incorrect format of the length. Please use the correct format **HH:MM**.');
-          }
-        } else {
-          console.warn(`Step 4 - Invalid length format: "${lengthInput}"`);
-          await user.send('Incorrect format of the length. Please use the correct format **HH:MM**.');
-        }
-      }
-    });
-
-    collector.on('end', async (collected, reason) => {
-      console.log(`Collector ended. Reason: ${reason}. Collected messages: ${collected.size}`);
-
-      if (reason === 'time') {
-        console.warn('Collector ended due to timeout.');
-        await user.send('I did not receive a response in a timely manner. Please try again.');
-        return;
-      }
-
-      if (!eventChannel) {
-        console.error('Event channel not found.');
-        await user.send('I cannot find the event channel. Please contact the administrator.');
-        return;
-      }
-
+    if (interaction.options.getSubcommand() === 'create') {
       try {
+
+        if (!guildData || !eventConfig || !guildData.enabledSystems?.events || !eventConfig.eventChannelId) {
+          console.log('Event system disabled or no event channel set.');
+          return interaction.reply({
+            content: 'The event system is disabled or no event channel is set. Please ask an administrator to configure it.',
+            ephemeral: true,
+          });
+        }
+
+        const eventChannel = interaction.guild.channels.cache.get(eventConfig.eventChannelId);
+        if (!eventChannel) {
+          console.log('Event channel not found.');
+          return interaction.reply({
+            content: 'Event channel not found. Please ask an administrator to configure it.',
+            ephemeral: true,
+          });
+        }
+
+        // Create and show the modal
+        const modal = new ModalBuilder()
+          .setCustomId('eventModal')
+          .setTitle('Create New Event');
+
+        const titleInput = new TextInputBuilder()
+          .setCustomId('titleInput')
+          .setLabel("What will be the title of the event?")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const descriptionInput = new TextInputBuilder()
+          .setCustomId('descriptionInput')
+          .setLabel("What will be the description of the event?")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        const dateInput = new TextInputBuilder()
+          .setCustomId('dateInput')
+          .setLabel("Date of the event (format: YYYY-MM-DDTHH:MM)")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("Example: 2024-12-31T18:00")
+          .setRequired(false);
+
+        const lengthInput = new TextInputBuilder()
+          .setCustomId('lengthInput')
+          .setLabel("Duration of the event (format: HH:MM)")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("Example: 01:30")
+          .setRequired(false);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(titleInput),
+          new ActionRowBuilder().addComponents(descriptionInput),
+          new ActionRowBuilder().addComponents(dateInput),
+          new ActionRowBuilder().addComponents(lengthInput)
+        );
+
+        await interaction.showModal(modal);
+
+        // Handle modal submission
+        const modalSubmission = await interaction.awaitModalSubmit({ time: 60000 });
+        const title = modalSubmission.fields.getTextInputValue('titleInput');
+        const description = modalSubmission.fields.getTextInputValue('descriptionInput');
+        const dateInputValue = modalSubmission.fields.getTextInputValue('dateInput');
+        const lengthInputValue = modalSubmission.fields.getTextInputValue('lengthInput');
+
+        let date = new Date();
+        if (dateInputValue) {
+          const parsedDate = new Date(dateInputValue);
+          if (!isNaN(parsedDate)) {
+            date = parsedDate;
+          } else {
+            return modalSubmission.reply({ content: 'Invalid date format. Please use YYYY-MM-DDTHH:MM.', ephemeral: true });
+          }
+        }
+
+        let length = { hours: 0, minutes: 0 };
+        if (lengthInputValue) {
+          const [hours, minutes] = lengthInputValue.split(':').map(Number);
+          if (!isNaN(hours) && !isNaN(minutes)) {
+            length = { hours, minutes };
+          } else {
+            return modalSubmission.reply({ content: 'Invalid duration format. Please use HH:MM.', ephemeral: true });
+          }
+        }
+
         const endDate = new Date(date);
         endDate.setHours(endDate.getHours() + length.hours);
         endDate.setMinutes(endDate.getMinutes() + length.minutes);
 
+        // Create the event embed
+        const eventEmbed = new EmbedBuilder()
+          .setTitle(title)
+          .setDescription(description)
+          .setColor('#00FF00') // Green color
+          .addFields(
+            { name: 'Start Time', value: `<t:${Math.floor(date.getTime() / 1000)}:F>`, inline: true },
+            { name: 'End Time', value: `<t:${Math.floor(endDate.getTime() / 1000)}:t>`, inline: true },
+            { name: 'Time Remaining', value: `<t:${Math.floor(date.getTime() / 1000)}:R>`, inline: false }
+          )
+          .setFooter({ text: `Created by ${interaction.user.username}`, iconURL: interaction.user.displayAvatarURL() })
+          .setTimestamp();
+
+        // Create the event thread
         const thread = await eventChannel.threads.create({
           name: title,
           message: {
-            content: `The event will start: <t:${Math.floor(date.getTime() / 1000)}:F> and will last until <t:${Math.floor(endDate.getTime() / 1000)}:t>\n:watch: <t:${Math.floor(date.getTime() / 1000)}:R>\n${description}`,
+            embeds: [eventEmbed],
           },
         });
 
-        const threadMessage = await thread.fetchStarterMessage();
-        if (threadMessage) {
-          for (const emoji of savedEmojis) {
-            try {
-              await threadMessage.react(emoji);
-              console.log(`Reaction added: "${emoji}"`);
-            } catch (error) {
-              console.error(`Failed to react with emoji "${emoji}":`, error);
-            }
+        console.log('Event thread created:', thread.name);
+
+        await modalSubmission.reply({ content: `Event created successfully in ${eventChannel}.`, ephemeral: true });
+      } catch (error) {
+        console.error('Error creating event:', error);
+        if (interaction.replied || interaction.deferred) {
+          return interaction.followUp({ content: 'An error occurred while creating the event. Please try again later.', ephemeral: true });
+        } else {
+          return interaction.reply({ content: 'An error occurred while creating the event. Please try again later.', ephemeral: true });
+        }
+      }
+    } else if (interaction.options.getSubcommand() === 'reactions') {
+      try {
+        if (!guildData || !eventConfig || !guildData.enabledSystems?.events || !eventConfig.eventChannelId) {
+          console.log('Event system disabled or no event channel set.');
+          return interaction.reply({
+            content: 'The event system is disabled or no event channel is set. Please ask an administrator to configure it.',
+            ephemeral: true,
+          });
+        }
+        const thread = interaction.channel;
+
+        // Verify if the command is executed in a thread
+        if (!thread.isThread()) {
+          return interaction.reply({ content: 'This command can only be used in an event thread.', ephemeral: true });
+        }
+
+        // Check if the user has the required permissions (administrator or organizer)
+        const member = await interaction.guild.members.fetch(user.id);
+        const isAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
+        const isOrganizer = thread.ownerId === user.id;
+
+        if (!isAdmin && !isOrganizer) {
+          return interaction.reply({ content: 'You need to be the event organizer or an administrator to use this command.', ephemeral: true });
+        }
+
+        // Get the emojis from the command option
+        const emojis = interaction.options.getString('emojis').split(/\s+/);
+
+        // Fetch the starter message of the thread
+        const starterMessage = await thread.fetchStarterMessage();
+        if (!starterMessage) {
+          return interaction.reply({ content: 'Failed to fetch the starter message of the thread.', ephemeral: true });
+        }
+
+        // Add each emoji as a reaction
+        for (const emoji of emojis) {
+          try {
+            await starterMessage.react(emoji);
+          } catch (error) {
+            console.warn(`Failed to react with emoji "${emoji}":`, error.message);
           }
         }
 
-        await user.send(`Your event was posted in the thread: ${thread.name}`);
+        return interaction.reply({ content: 'Reactions have been added to the event.', ephemeral: true });
       } catch (error) {
-        console.error('Error creating event thread:', error);
-        await user.send('There was an error publishing the event. Please contact the administrator.');
+        console.error('Error in /event reactions command:', error);
+        return interaction.reply({ content: 'An error occurred while adding reactions. Please try again later.', ephemeral: true });
       }
-    });
-
-    await interaction.reply({
-      content: 'Check your DMs to add event details!',
-      ephemeral: true,
-    });
+    }else if (interaction.options.getSubcommand() === 'ping') {
+      try {
+        if (!guildData || !eventConfig || !guildData.enabledSystems?.events || !eventConfig.eventChannelId) {
+          console.log('Event system disabled or no event channel set.');
+          return interaction.reply({
+            content: 'The event system is disabled or no event channel is set. Please ask an administrator to configure it.',
+            ephemeral: true,
+          });
+        }
+    
+        const thread = interaction.channel;
+    
+        // Verify if the command is executed in a thread
+        if (!thread.isThread()) {
+          return interaction.reply({ content: 'This command can only be used in an event thread.', ephemeral: true });
+        }
+    
+        // Check if the user has the required permissions (administrator or organizer)
+        const member = await interaction.guild.members.fetch(user.id);
+        const isAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
+        const isOrganizer = thread.ownerId === user.id;
+    
+        if (!isAdmin && !isOrganizer) {
+          return interaction.reply({ content: 'You need to be the event organizer or an administrator to use this command.', ephemeral: true });
+        }
+    
+        // Get the emoji and ping message from the command options
+        const emoji = interaction.options.getString('emoji');
+        const pingMessage = interaction.options.getString('ping_message');
+    
+        // Fetch the message by ID
+        const messageId = await thread.fetchStarterMessage();
+        const message = await thread.messages.fetch(messageId);
+        if (!message) {
+          return interaction.reply({
+            content: 'Message not found. Please provide a valid message ID.',
+            ephemeral: true,
+          });
+        }
+    
+        // Find the reaction by emoji
+        const reaction = message.reactions.cache.find(r => r.emoji.name === emoji || r.emoji.id === emoji);
+        if (!reaction) {
+          return interaction.reply({
+            content: `No reactions found with the emoji "${emoji}".`,
+            ephemeral: true,
+          });
+        }
+    
+        // Fetch all users who reacted with the specified emoji
+        const users = await reaction.users.fetch();
+        const userMentions = users.map(user => `<@${user.id}>`).join(', ');
+    
+        if (!userMentions) {
+          return interaction.reply({
+            content: 'No users reacted with the specified emoji.',
+            ephemeral: true,
+          });
+        }
+    
+        // Send the ping message
+        await interaction.reply({
+          content: `${pingMessage}\n${userMentions}`,
+          allowedMentions: { users: users.map(user => user.id) },
+        });
+      } catch (error) {
+        console.error('Error in /event ping command:', error);
+        interaction.reply({
+          content: 'An error occurred while executing this command. Please try again later.',
+          ephemeral: true,
+        });
+      }
+    }
+    
   },
 };

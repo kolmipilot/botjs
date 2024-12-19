@@ -12,11 +12,12 @@ module.exports = {
 
     const mongoURI = process.env.MONGO_URI;
 
-    try {
-      await mongoose.connect(mongoURI);
-      console.log("[INFO] Connected to MongoDB!".green);
-    } catch (e) {
-      console.error(`[ERROR] Failed to connect to MongoDB: ${e}`.red);
-    }
+    mongoose.set('debug', true);
+    console.log("[DEBUG] Attempting to connect to MongoDB...".yellow);
+    console.log(`[DEBUG] MongoDB URI: ${mongoURI ? "Provided" : "Not Provided"}`.yellow);
+
+    mongoose.connect(mongoURI, { connectTimeoutMS: 500 })
+    .then(() => console.log("[INFO] Connected to MongoDB!".green))
+    .catch((err) => console.error(`[ERROR] Failed to connect to MongoDB: ${err.message}`.red));
   },
 };
